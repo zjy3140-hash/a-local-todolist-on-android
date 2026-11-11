@@ -9,6 +9,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 *.apk
+!apk/planlist.apk
 *.ap_
 *.aab
 .kotlin/
