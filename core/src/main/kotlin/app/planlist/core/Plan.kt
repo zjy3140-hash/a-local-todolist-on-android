@@ -44,6 +44,20 @@ fun sortPlans(plans: List<Plan>): List<Plan> =
             .thenBy { it.id },
     )
 
+/** Done and Give up leave the active list and stop being reminded. */
+fun isInactive(status: PlanStatus): Boolean =
+    status == PlanStatus.DONE || status == PlanStatus.GIVE_UP
+
+fun activePlans(plans: List<Plan>): List<Plan> =
+    sortPlans(plans.filter { !isInactive(it.status) })
+
+fun inactivePlans(plans: List<Plan>): List<Plan> =
+    sortPlans(plans.filter { isInactive(it.status) })
+
 /** Status may change only strictly before the deadline. */
 fun canChangeStatus(deadlineMillis: Long, nowMillis: Long): Boolean =
     nowMillis < deadlineMillis
+
+/** An inactive plan cannot be flipped back from the status menu. Restart does that. */
+fun canSetStatus(current: PlanStatus, deadlineMillis: Long, nowMillis: Long): Boolean =
+    !isInactive(current) && canChangeStatus(deadlineMillis, nowMillis)

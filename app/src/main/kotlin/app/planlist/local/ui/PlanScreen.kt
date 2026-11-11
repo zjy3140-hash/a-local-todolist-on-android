@@ -18,12 +18,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,15 +42,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.planlist.core.Plan
 import app.planlist.core.PlanStatus
+import app.planlist.core.activePlans
 import app.planlist.core.canChangeStatus
+import app.planlist.core.inactivePlans
 import app.planlist.local.R
 import app.planlist.local.ui.theme.Cinnabar
+import app.planlist.local.ui.theme.Cream
 import app.planlist.local.ui.theme.Ink
 import app.planlist.local.ui.theme.InkSoft
 import app.planlist.local.ui.theme.Line
+import app.planlist.local.ui.theme.Paper
 import app.planlist.local.ui.theme.PaperCard
 import app.planlist.local.ui.theme.priorityColor
 import app.planlist.local.ui.theme.statusColor
+import kotlinx.coroutines.launch
 import java.time.ZoneId
 
 @Composable
@@ -53,9 +67,13 @@ fun PlanScreen(
     onOpenSettings: () -> Unit,
     onOpenPlan: (Long) -> Unit,
     onStatus: (Plan, PlanStatus) -> Unit,
+    onDelete: (Plan) -> Unit,
+    onRestart: (Plan) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val locale = LocalConfiguration.current.locales[0]
+    val active = activePlans(plans)
+    val inactive = inactivePlans(plans)
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
@@ -91,8 +109,8 @@ fun PlanScreen(
                 )
             }
         }
-        if (plans.isEmpty()) {
-            item {
+        if (active.isEmpty() && inactive.isEmpty()) {
+            item(key = "empty") {
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -104,14 +122,54 @@ fun PlanScreen(
                     Text(stringResource(R.string.empty_body), style = MaterialTheme.typography.bodyLarge, color = InkSoft)
                 }
             }
+        } else if (active.isEmpty()) {
+            item(key = "active-empty") {
+                Text(
+                    stringResource(R.string.active_empty),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkSoft,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
         }
-        items(plans, key = { it.id }) { plan ->
+        items(active, key = { it.id }) { plan ->
             PlanCard(
                 plan = plan,
                 deadline = formatDeadline(plan.deadlineMillis, zone, locale),
                 nowMillis = nowMillis,
                 onOpen = { onOpenPlan(plan.id) },
                 onStatus = { onStatus(plan, it) },
+            )
+        }
+        item(key = "inactive-header") {
+            Column(Modifier.padding(top = 22.dp, bottom = 2.dp)) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+                Text(
+                    stringResource(R.string.inactive_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Text(
+                    stringResource(R.string.inactive_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (inactive.isEmpty()) {
+                    Text(
+                        stringResource(R.string.inactive_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkSoft,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        }
+        items(inactive, key = { "inactive-${it.id}" }) { plan ->
+            InactiveCard(
+                plan = plan,
+                deadline = formatDeadline(plan.deadlineMillis, zone, locale),
+                onDelete = { onDelete(plan) },
+                onRestart = { onRestart(plan) },
             )
         }
     }
@@ -175,6 +233,153 @@ private fun PlanCard(
                 options = statuses.map { statusLabel(it) },
                 valueColor = statusColor(plan.status),
                 onSelectIndex = { onStatus(statuses[it]) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun InactiveCard(
+    plan: Plan,
+    deadline: String,
+    onDelete: () -> Unit,
+    onRestart: () -> Unit,
+) {
+    var confirmDelete by remember(plan.id) { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, Line, RoundedCornerShape(18.dp))
+            .background(Paper)
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(statusColor(plan.status).copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    plan.priority.toString(),
+                    color = statusColor(plan.status),
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text(
+                    plan.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = InkSoft,
+                )
+                Text(deadline, style = MaterialTheme.typography.bodyMedium, color = InkSoft)
+                Text(
+                    statusLabel(plan.status),
+                    color = statusColor(plan.status),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    if (!confirmDelete) confirmDelete = true else onDelete()
+                },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    stringResource(if (confirmDelete) R.string.confirm_delete else R.string.delete),
+                    color = Cinnabar,
+                )
+            }
+            Button(
+                onClick = onRestart,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Cinnabar, contentColor = Cream),
+            ) {
+                Text(stringResource(R.string.restart), color = Cream)
+            }
+        }
+    }
+}
+
+@Composable
+fun InactivePlanPage(
+    plan: Plan,
+    zone: ZoneId,
+    onRestart: () -> Unit,
+    onDelete: suspend () -> Unit,
+    onBack: () -> Unit,
+) {
+    val locale = LocalConfiguration.current.locales[0]
+    val scope = rememberCoroutineScope()
+    var confirmDelete by remember(plan.id) { mutableStateOf(false) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.cd_back),
+                    tint = Ink,
+                )
+            }
+            Text(stringResource(R.string.inactive_title), style = MaterialTheme.typography.headlineMedium)
+        }
+        Text(plan.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
+        Text(
+            statusLabel(plan.status),
+            color = statusColor(plan.status),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            formatDeadline(plan.deadlineMillis, zone, locale),
+            style = MaterialTheme.typography.bodyMedium,
+            color = InkSoft,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            stringResource(R.string.inactive_detail),
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        Spacer(Modifier.height(20.dp))
+        Button(
+            onClick = onRestart,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Cinnabar, contentColor = Cream),
+        ) {
+            Text(stringResource(R.string.restart), color = Cream)
+        }
+        OutlinedButton(
+            onClick = {
+                if (!confirmDelete) {
+                    confirmDelete = true
+                } else {
+                    scope.launch {
+                        onDelete()
+                        onBack()
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Text(
+                stringResource(if (confirmDelete) R.string.confirm_delete else R.string.delete),
+                color = Cinnabar,
             )
         }
     }

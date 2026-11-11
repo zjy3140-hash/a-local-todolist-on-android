@@ -69,6 +69,7 @@ fun PlanEditor(
     existing: Plan?,
     zone: ZoneId,
     nowMillis: Long,
+    restart: Boolean = false,
     onSave: suspend (PlanDraft) -> SaveResult,
     onDelete: (suspend () -> Unit)?,
     onBack: () -> Unit,
@@ -76,17 +77,23 @@ fun PlanEditor(
 ) {
     val locale = LocalConfiguration.current.locales[0]
     val scope = rememberCoroutineScope()
-    val anchorYear = remember(zone, existing?.id) {
-        fromEpochMillis(existing?.deadlineMillis ?: nowMillis, zone).year
+    val anchorYear = remember(zone, existing?.id, restart) {
+        val basis = if (restart || existing == null) nowMillis else existing.deadlineMillis
+        fromEpochMillis(basis, zone).year
     }
     var title by remember(existing?.id) { mutableStateOf(existing?.title.orEmpty()) }
-    var parts by remember(existing?.id, zone.id) {
+    var parts by remember(existing?.id, zone.id, restart) {
         mutableStateOf(
-            existing?.let { fromEpochMillis(it.deadlineMillis, zone) }
-                ?: defaultDeadline(nowMillis, zone),
+            if (restart || existing == null) {
+                defaultDeadline(nowMillis, zone)
+            } else {
+                fromEpochMillis(existing.deadlineMillis, zone)
+            },
         )
     }
-    var status by remember(existing?.id) { mutableStateOf(existing?.status ?: PlanStatus.IN_PROGRESS) }
+    var status by remember(existing?.id, restart) {
+        mutableStateOf(if (restart) PlanStatus.IN_PROGRESS else existing?.status ?: PlanStatus.IN_PROGRESS)
+    }
     var reminder by remember(existing?.id) { mutableStateOf(existing?.reminder ?: ReminderKind.POPUP) }
     var priority by remember(existing?.id) { mutableIntStateOf(existing?.priority ?: PriorityScale.DEFAULT) }
     var repeat by remember(existing?.id) { mutableStateOf(existing?.repeat ?: RepeatKind.ONCE) }
@@ -116,15 +123,16 @@ fun PlanEditor(
         id = existing?.id,
         title = title,
         deadlineMillis = deadlineMillis,
-        status = status,
+        status = if (restart) PlanStatus.IN_PROGRESS else status,
         reminder = reminder,
         priority = priority,
         repeat = repeat,
         interval = interval,
-        originalDeadlineMillis = existing?.deadlineMillis,
+        originalDeadlineMillis = if (restart) null else existing?.deadlineMillis,
+        restarting = restart,
     )
     val issue = validate(draft, nowMillis)
-    val statusEnabled = canChangeStatus(deadlineMillis, nowMillis)
+    val statusEnabled = !restart && canChangeStatus(deadlineMillis, nowMillis)
     val years = yearOptions(anchorYear, clamped.year)
     val statuses = PlanStatus.entries
     val reminders = ReminderKind.entries
@@ -142,15 +150,31 @@ fun PlanEditor(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back), tint = Ink)
             }
             Text(
-                stringResource(if (existing == null) R.string.add_plan else R.string.edit_plan),
+                stringResource(
+                    when {
+                        restart -> R.string.restart_plan
+                        existing == null -> R.string.add_plan
+                        else -> R.string.edit_plan
+                    },
+                ),
                 style = MaterialTheme.typography.headlineMedium,
             )
         }
         Text(
             stringResource(R.string.system_time) + "  " + formatClock(nowMillis, zone, locale),
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(start = 12.dp, bottom = 12.dp),
+            modifier = Modifier.padding(start = 12.dp, bottom = if (restart && existing != null) 4.dp else 12.dp),
         )
+        if (restart && existing != null) {
+            Text(
+                stringResource(
+                    R.string.previous_deadline,
+                    formatDeadline(existing.deadlineMillis, zone, locale),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 12.dp, bottom = 12.dp),
+            )
+        }
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
@@ -230,7 +254,13 @@ fun PlanEditor(
             onSelectIndex = { status = statuses[it] },
         )
         Text(
-            stringResource(if (statusEnabled) R.string.status_hint else R.string.status_locked),
+            stringResource(
+                when {
+                    restart -> R.string.restart_hint
+                    statusEnabled -> R.string.status_hint
+                    else -> R.string.status_locked
+                },
+            ),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 12.dp),
         )
@@ -306,7 +336,11 @@ fun PlanEditor(
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Cinnabar, contentColor = Cream),
         ) {
-            Text(stringResource(R.string.save), style = MaterialTheme.typography.labelLarge, color = Cream)
+            Text(
+                stringResource(if (restart) R.string.restart else R.string.save),
+                style = MaterialTheme.typography.labelLarge,
+                color = Cream,
+            )
         }
         if (onDelete != null) {
             TextButton(

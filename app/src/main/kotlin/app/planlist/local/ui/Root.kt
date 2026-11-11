@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.planlist.core.Plan
+import app.planlist.core.isInactive
 import app.planlist.local.MainActivity
 import app.planlist.local.PlanlistApp
 import app.planlist.local.R
@@ -63,6 +64,7 @@ fun PlanlistRoot(
     val context = LocalContext.current
     var section by rememberSaveable { mutableStateOf(SECTION_PLAN) }
     var editorKey by rememberSaveable { mutableStateOf(EDITOR_CLOSED) }
+    var restarting by rememberSaveable { mutableStateOf(false) }
     var settingsVersion by remember { mutableIntStateOf(0) }
     val zone = remember(settingsVersion, section) { app.settings.zoneId() }
     val plansFlow = remember { app.repository.observe() }
@@ -86,7 +88,10 @@ fun PlanlistRoot(
         }
     }
     val editing = editorKey != EDITOR_CLOSED
-    BackHandler(enabled = editing) { editorKey = EDITOR_CLOSED }
+    BackHandler(enabled = editing) {
+        editorKey = EDITOR_CLOSED
+        restarting = false
+    }
 
     Scaffold(
         containerColor = Paper,
@@ -133,7 +138,12 @@ fun PlanlistRoot(
                     planId = editorKey.takeIf { it >= 0L },
                     zone = zone,
                     nowMillis = now,
-                    onBack = { editorKey = EDITOR_CLOSED },
+                    restart = restarting,
+                    onRestart = { restarting = true },
+                    onBack = {
+                        editorKey = EDITOR_CLOSED
+                        restarting = false
+                    },
                 )
             } else if (section == SECTION_SETTINGS) {
                 SettingsScreen(
@@ -149,11 +159,21 @@ fun PlanlistRoot(
                     nowMillis = now,
                     permissionsMissing = permissionsMissing,
                     onOpenSettings = { section = SECTION_SETTINGS },
-                    onOpenPlan = { editorKey = it },
+                    onOpenPlan = {
+                        restarting = false
+                        editorKey = it
+                    },
                     onStatus = { plan, status ->
                         app.scope.launch {
                             app.repository.setStatus(plan.id, status, System.currentTimeMillis())
                         }
+                    },
+                    onDelete = { plan ->
+                        app.scope.launch { app.repository.delete(plan.id) }
+                    },
+                    onRestart = { plan ->
+                        restarting = true
+                        editorKey = plan.id
                     },
                 )
             }
@@ -176,6 +196,8 @@ private fun EditorRoute(
     planId: Long?,
     zone: java.time.ZoneId,
     nowMillis: Long,
+    restart: Boolean,
+    onRestart: () -> Unit,
     onBack: () -> Unit,
 ) {
     var existing by remember { androidx.compose.runtime.mutableStateOf<Plan?>(null) }
@@ -203,10 +225,22 @@ private fun EditorRoute(
         }
         return
     }
+    val loaded = existing
+    if (loaded != null && isInactive(loaded.status) && !restart) {
+        InactivePlanPage(
+            plan = loaded,
+            zone = zone,
+            onRestart = onRestart,
+            onDelete = suspend { app.repository.delete(loaded.id) },
+            onBack = onBack,
+        )
+        return
+    }
     PlanEditor(
         existing = existing,
         zone = zone,
         nowMillis = nowMillis,
+        restart = restart && loaded != null && isInactive(loaded.status),
         onSave = { draft -> app.repository.save(draft, System.currentTimeMillis()) },
         onDelete = planId?.let { id -> suspend { app.repository.delete(id) } },
         onBack = onBack,

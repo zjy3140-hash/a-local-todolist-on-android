@@ -12,7 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
 import app.planlist.core.DraftIssue
-import app.planlist.core.canChangeStatus
+import app.planlist.core.canSetStatus
 import app.planlist.core.IntervalRules
 import app.planlist.core.Plan
 import app.planlist.core.PlanDraft
@@ -123,7 +123,10 @@ class PlanRepository(
             priority = PriorityScale.coerce(draft.priority),
             repeatKind = draft.repeat.name,
             intervalSeconds = interval,
-            createdAtMillis = existing?.createdAtMillis ?: now,
+            createdAtMillis = when {
+                existing == null || draft.restarting -> now
+                else -> existing.createdAtMillis
+            },
             updatedAtMillis = now,
         )
         val id = if (existing == null) {
@@ -133,13 +136,15 @@ class PlanRepository(
             entity.id
         }
         val saved = dao.byId(id)?.toPlan() ?: return SaveResult.Missing
+        if (draft.restarting) scheduler.cancel(id)
         scheduler.reschedule(saved, now)
         return SaveResult.Saved(id)
     }
 
     suspend fun setStatus(id: Long, status: PlanStatus, now: Long): Boolean {
         val entity = dao.byId(id) ?: return false
-        if (!canChangeStatus(entity.deadlineMillis, now)) return false
+        val current = runCatching { PlanStatus.valueOf(entity.status) }.getOrNull() ?: return false
+        if (!canSetStatus(current, entity.deadlineMillis, now)) return false
         val updated = entity.copy(status = status.name, updatedAtMillis = now)
         dao.update(updated)
         scheduler.reschedule(updated.toPlan(), now)

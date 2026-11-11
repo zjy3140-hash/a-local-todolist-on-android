@@ -10,6 +10,7 @@ data class PlanDraft(
     val repeat: RepeatKind,
     val interval: IntervalParts,
     val originalDeadlineMillis: Long?,
+    val restarting: Boolean = false,
 )
 
 sealed interface DraftIssue {
@@ -20,7 +21,8 @@ sealed interface DraftIssue {
 
 fun validate(draft: PlanDraft, nowMillis: Long): DraftIssue? {
     if (draft.title.trim().isEmpty()) return DraftIssue.EmptyTitle
-    val keepsOriginal = draft.originalDeadlineMillis != null &&
+    val keepsOriginal = !draft.restarting &&
+        draft.originalDeadlineMillis != null &&
         draft.deadlineMillis == draft.originalDeadlineMillis
     if (draft.deadlineMillis <= nowMillis && !keepsOriginal) {
         return DraftIssue.DeadlineNotInFuture
@@ -38,6 +40,8 @@ fun validate(draft: PlanDraft, nowMillis: Long): DraftIssue? {
 }
 
 fun resolvedStatus(draft: PlanDraft, nowMillis: Long, previous: PlanStatus?): PlanStatus {
+    if (draft.restarting) return PlanStatus.IN_PROGRESS
+    if (previous != null && isInactive(previous)) return previous
     if (!canChangeStatus(draft.deadlineMillis, nowMillis)) {
         return previous ?: PlanStatus.IN_PROGRESS
     }

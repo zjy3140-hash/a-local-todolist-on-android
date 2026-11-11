@@ -75,6 +75,26 @@ class PlanRulesTest {
     }
 
     @Test
+    fun doneAndGiveUpLeaveTheActiveList() {
+        val plans = listOf(
+            plan(id = 1, priority = 1, status = PlanStatus.IN_PROGRESS, deadline = 300),
+            plan(id = 2, priority = 9, status = PlanStatus.DONE, deadline = 100),
+            plan(id = 3, priority = 4, status = PlanStatus.IN_PROGRESS, deadline = 50),
+            plan(id = 4, priority = 8, status = PlanStatus.GIVE_UP, deadline = 400),
+        )
+        assertEquals(listOf(3L, 1L), activePlans(plans).map { it.id })
+        assertEquals(listOf(2L, 4L), inactivePlans(plans).map { it.id })
+    }
+
+    @Test
+    fun inactiveStatusCannotBeChangedInPlace() {
+        assertFalse(canSetStatus(PlanStatus.DONE, deadlineMillis = 5_000, nowMillis = 0))
+        assertFalse(canSetStatus(PlanStatus.GIVE_UP, deadlineMillis = 5_000, nowMillis = 0))
+        assertTrue(canSetStatus(PlanStatus.IN_PROGRESS, deadlineMillis = 5_000, nowMillis = 0))
+        assertFalse(canSetStatus(PlanStatus.IN_PROGRESS, deadlineMillis = 5_000, nowMillis = 5_000))
+    }
+
+    @Test
     fun statusChangesOnlyBeforeDeadline() {
         assertTrue(canChangeStatus(deadlineMillis = 1_000, nowMillis = 999))
         assertFalse(canChangeStatus(deadlineMillis = 1_000, nowMillis = 1_000))
@@ -162,6 +182,35 @@ class PlanRulesTest {
     }
 
     @Test
+    fun restartRequiresANewFutureDeadlineAndReturnsToInProgress() {
+        val keptPast = draft(
+            title = "old",
+            deadline = 50,
+            original = 50,
+            status = PlanStatus.DONE,
+            restarting = true,
+        )
+        assertEquals(DraftIssue.DeadlineNotInFuture, validate(keptPast, nowMillis = 100))
+        val renewed = draft(
+            title = "old",
+            deadline = 400,
+            original = 50,
+            status = PlanStatus.DONE,
+            restarting = true,
+        )
+        assertNull(validate(renewed, nowMillis = 100))
+        assertEquals(
+            PlanStatus.IN_PROGRESS,
+            resolvedStatus(renewed, nowMillis = 100, previous = PlanStatus.DONE),
+        )
+        val sneak = draft(title = "old", deadline = 400, original = 50, status = PlanStatus.IN_PROGRESS)
+        assertEquals(
+            PlanStatus.DONE,
+            resolvedStatus(sneak, nowMillis = 100, previous = PlanStatus.DONE),
+        )
+    }
+
+    @Test
     fun statusStaysPutOnceTheDeadlineHasPassed() {
         val past = draft(title = "x", deadline = 50, original = 50, status = PlanStatus.DONE)
         assertEquals(
@@ -222,6 +271,7 @@ class PlanRulesTest {
         status: PlanStatus = PlanStatus.IN_PROGRESS,
         repeat: RepeatKind = RepeatKind.ONCE,
         interval: IntervalParts = IntervalParts(0, 0, 0, 0),
+        restarting: Boolean = false,
     ) = PlanDraft(
         id = null,
         title = title,
@@ -232,5 +282,6 @@ class PlanRulesTest {
         repeat = repeat,
         interval = interval,
         originalDeadlineMillis = original,
+        restarting = restarting,
     )
 }

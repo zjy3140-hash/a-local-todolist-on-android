@@ -35,7 +35,16 @@
     <string name="back">返回</string>
     <string name="system_time">系统时间</string>
     <string name="status_locked">已过截止时间，不能再更改状态。</string>
-    <string name="status_hint">在到达截止时间前，可以把状态改为 Done 或 Give up。</string>
+    <string name="status_hint">在到达截止时间前，可以改为 Done 或 Give up。改完后进入失效区，不再提醒。</string>
+    <string name="inactive_title">失效区</string>
+    <string name="inactive_hint">状态为 Done 或 Give up 的计划在这里，不再提醒。可以删除，或重新选择截止时间后重启。</string>
+    <string name="inactive_empty">失效区还没有计划。</string>
+    <string name="active_empty">没有进行中的计划。</string>
+    <string name="restart">重启</string>
+    <string name="restart_plan">重启</string>
+    <string name="restart_hint">重新选择截止时间。保存后计划重新有效，并按新的截止时间重新开始提醒。</string>
+    <string name="previous_deadline">原截止时间 %1$s</string>
+    <string name="inactive_detail">这条计划已失效，不再提醒。可以删除，或重新选择截止时间后重启。</string>
     <string name="error_title">请填写计划。</string>
     <string name="error_deadline">截止时间必须晚于当前系统时间。</string>
     <string name="error_interval">间隔必须大于 0，并且不超过 30 天。</string>
@@ -86,5 +95,7 @@
     <string name="cd_settings">设置</string>
     <string name="cd_add">新建计划</string>
     <string name="cd_back">返回</string>
+    <string name="cd_restart">重启</string>
+    <string name="cd_delete">删除</string>
     <string name="cd_dropdown">%1$s，%2$s</string>
 </resources>
